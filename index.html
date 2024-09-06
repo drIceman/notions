@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Заметки</title>
+
+    <link rel="stylesheet" href="//unpkg.com/simplemde/dist/simplemde.min.css">
+    <script src="//unpkg.com/simplemde/dist/simplemde.min.js"></script>
+    <script src="//unpkg.com/magic-portal"></script>
+    <script>
+      const $ = id => document.getElementById(id);
+
+      let worker = new Worker('./worker.js');
+      const portal = new MagicPortal(worker);
+
+      const mainThread = {
+        async print(message) {
+          $('log').textContent += message + "\n";
+        },
+        async fill(url) {
+          let username = window.prompt('Логин:');
+          let password = window.prompt('Пароль:');
+          return { username, password };
+        },
+        async rejected({ url, auth }) {
+          window.alert('Авторизация не удалась');
+          return;
+        },
+      };
+
+      portal.set('mainThread', mainThread, {
+        void: ['print', 'rejected'],
+      });
+
+      async function clone() {
+        await workerThread.setDir('/');
+        await workerThread.clone({
+          corsProxy: 'https://cors.isomorphic-git.org',
+          url: $('repository').value,
+        });
+        const files = await workerThread.files();
+        if (files.length > 0) {
+          await showFiles(files);
+        }
+      };
+
+      async function showFiles(files) {
+        $('files').style.display = 'block';
+
+        for (let file of files) {
+          let sub1 = document.createElement('div');
+          sub1.textContent = file + ' ';
+          let sub2 = document.createElement('button');
+          sub2.textContent = 'Изменить';
+          sub2.setAttribute('data', file);
+          sub2.addEventListener('click', edit);
+          sub1.appendChild(sub2);
+          $('files').appendChild(sub1);
+        }
+      }
+
+      async function edit(el) {
+        let content = await workerThread.read(el.target.getAttribute('data'));
+        editor.value(content);
+        let sub = document.createElement('button');
+        sub.textContent = 'Сохранить';
+        sub.setAttribute('data', el.target.getAttribute('data'));
+        sub.addEventListener('click', save);
+        $("files").append(sub);
+      }
+
+      async function save(el) {
+        await workerThread.save(el.target.getAttribute('data'), editor.value());
+        el.target.remove();
+      }
+
+      async function push() {
+        await workerThread.push();
+      }
+
+      async function pull() {
+        return;
+      }
+
+      (async () => {
+        const workerThread = await portal.get('workerThread');
+        const files = await workerThread.files();
+
+        window.workerThread = workerThread;
+        window.worker = worker;
+
+        $('wait').style.display = 'none';
+        $('container').style.display = 'block';
+
+        const editor = new SimpleMDE({
+          element: $('editor'),
+          hideIcons: ['guide', 'heading'],
+          showIcons: ['strikethrough', 'heading-smaller', 'heading-bigger', 'code', 'clean-block', 'table'],
+          autoSave: {
+            enabled: true,
+          },
+          forceSync: true,
+          status: false,
+        });
+
+        window.editor = editor;
+
+        if (files.length == 0) {
+          $('repository').style.display = 'inline';
+          $('clone').style.display = 'inline';
+          $('clone').addEventListener('click', clone);
+        } else {
+          $('push').style.display = 'inline';
+          $('push').addEventListener('click', push);
+
+          $('pull').style.display = 'inline';
+          $('pull').addEventListener('click', pull);
+
+          await showFiles(files);
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="wait">Запуск приложения, пожалуйста, подождите ;)</div>
+    <div id="container" style="display: none">
+      <div>
+        <button type="button" id="pull" style="display: none">Импорт</button>
+        <button type="button" id="push" style="display: none">Экспорт</button>
+      </div>
+      <div>
+        <input
+          id="repository"
+          type="text"
+          style="width: 50em; display: none"
+          placeholder="Введите адрес репозитория с заметками"
+        />
+        <button type="button" id="clone" style="display: none">Подключить</button>
+      </div>
+      <div id="files" style="display: none">
+        <div>Список файлов:</div>
+      </div>
+      <textarea id="editor"></textarea>
+      <output id="log" style="white-space: pre"></output>
+    </div>
+  </body>
+</html>
